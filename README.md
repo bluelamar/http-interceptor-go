@@ -30,14 +30,6 @@ So if authorization is denied the handler will not be called.
 
 ## Usage
 
-Each package that needs to initialize once must register itself with init-all-once-go.
-This can be done by each package leveraging the init() function(s).
-Init functions are called only once per package.
-They run after all variable declarations and before the main function. 
-Each package will make use of the init() function for the registration process.
-
-Each package can register using their New constructor as well.
-
 Example Registering the *http* handler functions:
 
 ```go
