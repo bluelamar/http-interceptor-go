@@ -1,4 +1,4 @@
-// Copyright 2022, Initialize All Once Authors
+// Copyright 2023, Initialize All Once Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // You may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import (
 )
 
 // InterceptResponseWriterI is a plugin replacement for the RespoonseWriter interface.
-// It has additional functionality for http handlers to m
+// It has additional functionality for http handlers to add cookies and headers to the response.
 type InterceptResponseWriterI interface {
 	// HandleFunc used as the handler in the http.HandleFunc call.
 	HandleFunc(w http.ResponseWriter, r *http.Request)
