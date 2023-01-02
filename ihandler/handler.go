@@ -15,8 +15,9 @@
 package ihandler
 
 import (
-	"log"
 	"net/http"
+
+	"github.com/bluelamar/abstract-logger-go/alogger"
 )
 
 // InterceptResponseWriterI is a plugin replacement for the RespoonseWriter interface.
@@ -40,7 +41,7 @@ type InterceptResponseWriterI interface {
 }
 
 // UserHandlerFunc matches closely with the handler function signature of http.HandleFunc.
-// This will be implementeation specific to your web feature.
+// This will be implementeation specific to your web resource feature.
 type UserHandlerFunc func(InterceptResponseWriterI, *http.Request)
 
 // AuthorizerFunc method to support incoming request authentication and authorization.
@@ -57,16 +58,17 @@ type interceptResponseWriter struct {
 	userHandler UserHandlerFunc
 	authorizer  AuthorizerFunc
 	respBytes   *[][]byte
+	logger      alogger.LoggerI
 }
 
 // New returns the interface used for the handler with the http.HandleFunc registration call.
-// TODO add logger interface param
-func New(userHandler UserHandlerFunc, authorizer AuthorizerFunc) InterceptResponseWriterI {
+func New(userHandler UserHandlerFunc, authorizer AuthorizerFunc, logger alogger.LoggerI) InterceptResponseWriterI {
 	respBytes := make([][]byte, 0)
 	return &interceptResponseWriter{
 		userHandler: userHandler,
 		authorizer:  authorizer,
 		respBytes:   &respBytes,
+		logger:      logger,
 	}
 }
 
@@ -104,8 +106,7 @@ func (i *interceptResponseWriter) HandleFunc(w http.ResponseWriter, r *http.Requ
 			msg = err.Error()
 		}
 
-		// TODO warn, error, info - use logger interface
-		log.Printf("interceptor:HandleFunc: authorizer failed: error=%v\n", err)
+		i.logger.Errorf("interceptor:HandleFunc: authorizer failed: error=%v\n", err)
 		http.Error(w, msg, statusCode)
 		return
 	}
@@ -114,7 +115,7 @@ func (i *interceptResponseWriter) HandleFunc(w http.ResponseWriter, r *http.Requ
 	for _, chunk := range *i.respBytes {
 		n, err := w.Write(chunk)
 		if err != nil {
-			log.Printf("interceptor:HandleFunc: n=%d failed: error=%v\n", n, err)
+			i.logger.Errorf("interceptor:HandleFunc: n=%d failed: error=%v\n", n, err)
 			return
 		}
 	}

@@ -22,6 +22,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bluelamar/abstract-logger-go/alogger"
 )
 
 var (
@@ -95,7 +97,8 @@ func (h testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func TestMissingCookie(t *testing.T) {
 
-	ihu := New(updateMyResource, myRealAuthorizer)
+	l := alogger.New(nil, true)
+	ihu := New(updateMyResource, myRealAuthorizer, l)
 	// http.HandleFunc("/update", ihu.HandleFunc)
 	// http.HandleFunc("/update", updateResourcePage)
 
@@ -108,7 +111,7 @@ func TestMissingCookie(t *testing.T) {
 
 	res, err := http.Get(ts.URL)
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 
 	if res.StatusCode != http.StatusUnauthorized {
@@ -118,7 +121,7 @@ func TestMissingCookie(t *testing.T) {
 	respMsg, err := io.ReadAll(res.Body)
 	res.Body.Close()
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 
 	respMsgStr := string(respMsg)
@@ -132,7 +135,8 @@ func TestReturnedCookie(t *testing.T) {
 
 	// http.HandleFunc("/login", loginPage)
 	// http.HandleFunc("/login", ihd.HandleFunc)
-	ihd := New(loginPage, myDummyAuthorizer)
+	l := alogger.New(nil, true)
+	ihd := New(loginPage, myDummyAuthorizer, l)
 
 	th := &testHandler{
 		irw: ihd,
