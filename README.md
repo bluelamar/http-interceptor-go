@@ -95,17 +95,17 @@ func myRealAuthorizer(w InterceptResponseWriterI, r *http.Request) (error, int, 
 func main() {
 
     logger := alogger.New(nil, true)
-	// setup routes with the interceptors
+    // setup routes with the interceptors
 
-	// http.HandleFunc("/login", loginPage)
+    // http.HandleFunc("/login", loginPage)
     ihd := ihandler.New(loginPage, myDummyAuthorizer, logger)
     http.HandleFunc("/login", ihd.HandleFunc)
 
-	// http.HandleFunc("/create", createResourcePage)
+    // http.HandleFunc("/create", createResourcePage)
     ihc := ihandler.New(createMyResource, myRealAuthorizer, logger)
     http.HandleFunc("/create", ihc.HandleFunc)
 
-	// http.HandleFunc("/update", updateResourcePage)
+    // http.HandleFunc("/update", updateResourcePage)
     ihu := ihandler.New(updateMyResource, myRealAuthorizer, logger)
     http.HandleFunc("/update", ihu.HandleFunc)
 
