@@ -41,7 +41,7 @@ type InterceptResponseWriterI interface {
 }
 
 // UserHandlerFunc matches closely with the handler function signature of http.HandleFunc.
-// This will be implementeation specific to your web resource feature.
+// This will be implementation specific to your web resource feature.
 type UserHandlerFunc func(InterceptResponseWriterI, *http.Request)
 
 // AuthorizerFunc method to support incoming request authentication and authorization.
@@ -53,31 +53,36 @@ type UserHandlerFunc func(InterceptResponseWriterI, *http.Request)
 // See: https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml
 type AuthorizerFunc func(w InterceptResponseWriterI, r *http.Request) (error, int, string)
 
+// UserResponseMonitorFunc method can interrogate the request and response after the user handler has run.
+type UserResponseMonitorFunc func(w InterceptResponseWriterI, r *http.Request, respBytes *[][]byte)
+
 type interceptResponseWriter struct {
-	rw          http.ResponseWriter
-	userHandler UserHandlerFunc
-	authorizer  AuthorizerFunc
-	respBytes   *[][]byte
-	logger      alogger.LoggerI
+	rw              http.ResponseWriter
+	userHandler     UserHandlerFunc
+	authorizer      AuthorizerFunc
+	userRespMonitor UserResponseMonitorFunc
+	respBytes       *[][]byte
+	logger          alogger.LoggerI
 }
 
 // New returns the interface used for the handler with the http.HandleFunc registration call.
-func New(userHandler UserHandlerFunc, authorizer AuthorizerFunc, logger alogger.LoggerI) InterceptResponseWriterI {
+func New(userHandler UserHandlerFunc, authorizer AuthorizerFunc, userRespMonitor UserResponseMonitorFunc, logger alogger.LoggerI) InterceptResponseWriterI {
 	respBytes := make([][]byte, 0)
 	return &interceptResponseWriter{
-		userHandler: userHandler,
-		authorizer:  authorizer,
-		respBytes:   &respBytes,
-		logger:      logger,
+		userHandler:     userHandler,
+		authorizer:      authorizer,
+		userRespMonitor: userRespMonitor,
+		respBytes:       &respBytes,
+		logger:          logger,
 	}
 }
 
 func (i interceptResponseWriter) Header() http.Header {
-	return i.Header()
+	return i.rw.Header()
 }
 
 func (i interceptResponseWriter) WriteHeader(statusCode int) {
-	i.WriteHeader(statusCode)
+	i.rw.WriteHeader(statusCode)
 }
 
 func (i interceptResponseWriter) Write(b []byte) (int, error) {
@@ -99,19 +104,26 @@ func (i interceptResponseWriter) AddHeader(name, value string) {
 func (i *interceptResponseWriter) HandleFunc(w http.ResponseWriter, r *http.Request) {
 	i.rw = w
 
-	// ex: http.StatusUnauthorized, "Not authorized"
-	err, statusCode, msg := i.authorizer(i, r)
-	if err != nil {
-		if msg == "" {
-			msg = err.Error()
-		}
+	if i.authorizer != nil {
+		// ex: http.StatusUnauthorized, "Not authorized"
+		err, statusCode, msg := i.authorizer(i, r)
+		if err != nil {
+			if msg == "" {
+				msg = err.Error()
+			}
 
-		i.logger.Errorf("interceptor:HandleFunc: authorizer failed: error=%v\n", err)
-		http.Error(w, msg, statusCode)
-		return
+			i.logger.Errorf("interceptor:HandleFunc: authorizer failed: error=%v\n", err)
+			http.Error(w, msg, statusCode)
+			return
+		}
 	}
 
 	i.userHandler(i, r)
+
+	if i.userRespMonitor != nil {
+		i.userRespMonitor(i, r, i.respBytes)
+	}
+
 	for _, chunk := range *i.respBytes {
 		n, err := w.Write(chunk)
 		if err != nil {

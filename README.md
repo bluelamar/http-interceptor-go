@@ -68,6 +68,18 @@ func updateMyResource(w InterceptResponseWriterI, r *http.Request) {
     w.Write([]byte(txt))
 }
 
+func myRespChecker(w InterceptResponseWriterI, r *http.Request, respBytes *[][]byte) {
+	// log number of bytes, log if Set-Cookie header was set
+	nbytes := 0
+	for _, chunk := range *respBytes {
+		nbytes += len(chunk)
+	}
+
+	sc := w.Header().Get("Set-Cookie")
+
+	log.Printf("response checker: num bytes returned=%d : cookie=%s", nbytes, sc)
+}
+
 func myDummyAuthorizer(w InterceptResponseWriterI, r *http.Request) (error, int, string) {
     log.Println("myDummyAuthorizer: do nothing - or perhaps log stats, per url etc.")
 
@@ -98,15 +110,16 @@ func main() {
     // setup routes with the interceptors
 
     // http.HandleFunc("/login", loginPage)
-    ihd := ihandler.New(loginPage, myDummyAuthorizer, logger)
+    ihd := ihandler.New(loginPage, myDummyAuthorizer, myRespChecker, logger)
     http.HandleFunc("/login", ihd.HandleFunc)
 
+    // No UserResponseMonitorFunc specified.
     // http.HandleFunc("/create", createResourcePage)
-    ihc := ihandler.New(createMyResource, myRealAuthorizer, logger)
+    ihc := ihandler.New(createMyResource, myRealAuthorizer, nil, logger)
     http.HandleFunc("/create", ihc.HandleFunc)
 
     // http.HandleFunc("/update", updateResourcePage)
-    ihu := ihandler.New(updateMyResource, myRealAuthorizer, logger)
+    ihu := ihandler.New(updateMyResource, myRealAuthorizer, myRespChecker, logger)
     http.HandleFunc("/update", ihu.HandleFunc)
 
     err := http.ListenAndServe("127.0.0.1:8080", nil)

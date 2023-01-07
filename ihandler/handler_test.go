@@ -77,6 +77,18 @@ func loginPage(w InterceptResponseWriterI, r *http.Request) {
 	w.Write([]byte(txt2))
 }
 
+func myRespChecker(w InterceptResponseWriterI, r *http.Request, respBytes *[][]byte) {
+	// log number of bytes, log if Set-Cookie header was set
+	nbytes := 0
+	for _, chunk := range *respBytes {
+		nbytes += len(chunk)
+	}
+
+	sc := w.Header().Get("Set-Cookie")
+
+	log.Printf("response checker: num bytes returned=%d : cookie=%s", nbytes, sc)
+}
+
 func updateMyResource(w InterceptResponseWriterI, r *http.Request) {
 	// Update authorized users resource
 	// ...
@@ -98,9 +110,9 @@ func (h testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func TestMissingCookie(t *testing.T) {
 
 	l := alogger.New(nil, true)
-	ihu := New(updateMyResource, myRealAuthorizer, l)
+	ihu := New(updateMyResource, myRealAuthorizer, nil, l)
 	// http.HandleFunc("/update", ihu.HandleFunc)
-	// http.HandleFunc("/update", updateResourcePage)
+	// http.HandleFunc("/update", updateMyResource)
 
 	th := &testHandler{
 		irw: ihu,
@@ -136,7 +148,7 @@ func TestReturnedCookie(t *testing.T) {
 	// http.HandleFunc("/login", loginPage)
 	// http.HandleFunc("/login", ihd.HandleFunc)
 	l := alogger.New(nil, true)
-	ihd := New(loginPage, myDummyAuthorizer, l)
+	ihd := New(loginPage, myDummyAuthorizer, myRespChecker, l)
 
 	th := &testHandler{
 		irw: ihd,
