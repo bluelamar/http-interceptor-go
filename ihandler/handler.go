@@ -28,6 +28,8 @@ type InterceptResponseWriterI interface {
 
 	// Methods that match the http.ResponseWriter interface
 	Header() http.Header
+	// Write buffers the response bytes. It does not write the response immediately.
+	// The response bytes will be sent after all the authorizer functions are run.
 	Write([]byte) (int, error)
 	WriteHeader(statusCode int)
 
@@ -38,6 +40,14 @@ type InterceptResponseWriterI interface {
 
 	// AddHeader can be called multiple times to add headers to the response
 	AddHeader(name, value string)
+
+	// WithPre allows adding pre-handler function to list of pre-handler functions.
+	// Pre-handlers are called before the user provided handler function is called.
+	WithPre(af AuthorizerFunc) InterceptResponseWriterI
+
+	// WithPost allows adding post-handler function to list of post-handler functions.
+	// Post-handlers are called after the user provided handler function is called.
+	WithPost(PostResponseFunc) InterceptResponseWriterI
 }
 
 // UserHandlerFunc matches closely with the handler function signature of http.HandleFunc.
@@ -53,50 +63,81 @@ type UserHandlerFunc func(InterceptResponseWriterI, *http.Request)
 // See: https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml
 type AuthorizerFunc func(w InterceptResponseWriterI, r *http.Request) (error, int, string)
 
-// UserResponseMonitorFunc method can interrogate the request and response after the user handler has run.
-type UserResponseMonitorFunc func(w InterceptResponseWriterI, r *http.Request, respBytes *[][]byte)
+// PostResponseFunc method can interrogate the request and response after the user handler has run.
+type PostResponseFunc func(w InterceptResponseWriterI, r *http.Request, respBytes *[][]byte)
 
 type interceptResponseWriter struct {
-	rw              http.ResponseWriter
-	userHandler     UserHandlerFunc
-	authorizer      AuthorizerFunc
-	userRespMonitor UserResponseMonitorFunc
-	respBytes       *[][]byte
-	logger          alogger.LoggerI
+	rw           http.ResponseWriter
+	userHandler  UserHandlerFunc
+	authorizers  []AuthorizerFunc
+	respMonitors []PostResponseFunc
+	respBytes    *[][]byte
+	logger       alogger.LoggerI
 }
 
 // New returns the interface used for the handler with the http.HandleFunc registration call.
-func New(userHandler UserHandlerFunc, authorizer AuthorizerFunc, userRespMonitor UserResponseMonitorFunc, logger alogger.LoggerI) InterceptResponseWriterI {
+func New(userHandler UserHandlerFunc, authorizer AuthorizerFunc, userRespMonitor PostResponseFunc, logger alogger.LoggerI) InterceptResponseWriterI {
 	respBytes := make([][]byte, 0)
+
+	authFuncs := make([]AuthorizerFunc, 0)
+	if authorizer != nil {
+		authFuncs = append(authFuncs, authorizer)
+	}
+
+	respFuncs := make([]PostResponseFunc, 0)
+	if userRespMonitor != nil {
+		respFuncs = append(respFuncs, userRespMonitor)
+	}
+
 	return &interceptResponseWriter{
-		userHandler:     userHandler,
-		authorizer:      authorizer,
-		userRespMonitor: userRespMonitor,
-		respBytes:       &respBytes,
-		logger:          logger,
+		userHandler:  userHandler,
+		authorizers:  authFuncs,
+		respMonitors: respFuncs,
+		respBytes:    &respBytes,
+		logger:       logger,
 	}
 }
 
-func (i interceptResponseWriter) Header() http.Header {
+func (i *interceptResponseWriter) Header() http.Header {
 	return i.rw.Header()
 }
 
-func (i interceptResponseWriter) WriteHeader(statusCode int) {
+func (i *interceptResponseWriter) WriteHeader(statusCode int) {
 	i.rw.WriteHeader(statusCode)
 }
 
-func (i interceptResponseWriter) Write(b []byte) (int, error) {
+func (i *interceptResponseWriter) Write(b []byte) (int, error) {
 	(*i.respBytes) = append((*i.respBytes), b)
 	return len(b), nil
 }
 
 // SetCookie can be called multiple times to add cookies to the response
-func (i interceptResponseWriter) SetCookie(cookie *http.Cookie) {
+func (i *interceptResponseWriter) SetCookie(cookie *http.Cookie) {
 	http.SetCookie(i.rw, cookie)
 }
 
-func (i interceptResponseWriter) AddHeader(name, value string) {
+func (i *interceptResponseWriter) AddHeader(name, value string) {
 	i.rw.Header().Add(name, value)
+}
+
+func (i *interceptResponseWriter) WithPre(af AuthorizerFunc) InterceptResponseWriterI {
+	if af == nil {
+		return i
+	}
+
+	i.authorizers = append(i.authorizers, af)
+
+	return i
+}
+
+func (i *interceptResponseWriter) WithPost(pr PostResponseFunc) InterceptResponseWriterI {
+	if pr == nil {
+		return i
+	}
+
+	i.respMonitors = append(i.respMonitors, pr)
+
+	return i
 }
 
 // HandleFunc is the handler you pass to http.HandleFunc
@@ -104,9 +145,9 @@ func (i interceptResponseWriter) AddHeader(name, value string) {
 func (i *interceptResponseWriter) HandleFunc(w http.ResponseWriter, r *http.Request) {
 	i.rw = w
 
-	if i.authorizer != nil {
-		// ex: http.StatusUnauthorized, "Not authorized"
-		err, statusCode, msg := i.authorizer(i, r)
+	for _, af := range i.authorizers {
+		// ex: error, http.StatusUnauthorized, "Not authorized"
+		err, statusCode, msg := af(i, r)
 		if err != nil {
 			if msg == "" {
 				msg = err.Error()
@@ -116,12 +157,13 @@ func (i *interceptResponseWriter) HandleFunc(w http.ResponseWriter, r *http.Requ
 			http.Error(w, msg, statusCode)
 			return
 		}
+
 	}
 
 	i.userHandler(i, r)
 
-	if i.userRespMonitor != nil {
-		i.userRespMonitor(i, r, i.respBytes)
+	for _, rmf := range i.respMonitors {
+		rmf(i, r, i.respBytes)
 	}
 
 	for _, chunk := range *i.respBytes {

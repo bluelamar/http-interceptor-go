@@ -28,12 +28,19 @@ import (
 
 var (
 	updateRespErr   = "missing cookie for MyWebSite"
-	loginResp       = "hello buddy"
+	loginResp       = "Hello Buddy"
 	cookieValPrefix = "MyWebSite="
 )
 
 func myDummyAuthorizer(w InterceptResponseWriterI, r *http.Request) (error, int, string) {
 	log.Println("myDummyAuthorizer: do nothing - or perhaps log stats, per url etc.")
+
+	_, err := r.Cookie("MyWebSite")
+	if err != nil {
+		log.Println("myDummyAuthorizer: no cookie is set")
+	} else {
+		log.Println("myDummyAuthorizer: cookie MyWebSite is set")
+	}
 
 	return nil, 0, ""
 }
@@ -78,11 +85,21 @@ func loginPage(w InterceptResponseWriterI, r *http.Request) {
 }
 
 func myRespChecker(w InterceptResponseWriterI, r *http.Request, respBytes *[][]byte) {
-	// log number of bytes, log if Set-Cookie header was set
+	// log number of bytes, log if Set-Cookie header was set, replace certain chars in the response
 	nbytes := 0
 	for _, chunk := range *respBytes {
+		for i, b := range chunk {
+			if b == 'h' {
+				chunk[i] = 'H'
+			} else if b == 'b' {
+				chunk[i] = 'B'
+			}
+		}
 		nbytes += len(chunk)
 	}
+
+	// This is doable, but what is the use case?
+	w.Write([]byte(" *respCheckerApproved*"))
 
 	sc := w.Header().Get("Set-Cookie")
 
@@ -99,6 +116,22 @@ func updateMyResource(w InterceptResponseWriterI, r *http.Request) {
 	w.Write([]byte(txt))
 }
 
+func logMyRespSize(w InterceptResponseWriterI, r *http.Request, respBytes *[][]byte) {
+	nbytes := 0
+	for _, chunk := range *respBytes {
+		for i, b := range chunk {
+			if b == 'h' {
+				chunk[i] = 'H'
+			} else if b == 'b' {
+				chunk[i] = 'B'
+			}
+		}
+		nbytes += len(chunk)
+	}
+
+	log.Printf("logMyRespSize: num bytes to be returned=%d", nbytes)
+}
+
 type testHandler struct {
 	irw InterceptResponseWriterI
 }
@@ -108,11 +141,11 @@ func (h testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestMissingCookie(t *testing.T) {
-
-	l := alogger.New(nil, true)
-	ihu := New(updateMyResource, myRealAuthorizer, nil, l)
 	// http.HandleFunc("/update", ihu.HandleFunc)
 	// http.HandleFunc("/update", updateMyResource)
+	l := alogger.New(nil, true)
+	ihu := New(updateMyResource, myDummyAuthorizer, nil, l)
+	ihu = ihu.WithPre(myRealAuthorizer)
 
 	th := &testHandler{
 		irw: ihu,
@@ -149,6 +182,7 @@ func TestReturnedCookie(t *testing.T) {
 	// http.HandleFunc("/login", ihd.HandleFunc)
 	l := alogger.New(nil, true)
 	ihd := New(loginPage, myDummyAuthorizer, myRespChecker, l)
+	ihd = ihd.WithPost(logMyRespSize)
 
 	th := &testHandler{
 		irw: ihd,
@@ -177,6 +211,8 @@ func TestReturnedCookie(t *testing.T) {
 	if !strings.HasPrefix(respMsgStr, loginResp) {
 		t.Fatalf(`Expected msg(%s) for login response but received msg(%s)`, loginResp, respMsgStr)
 	}
+
+	t.Log("Received resp=" + respMsgStr)
 
 	hdrs := res.Header
 	cookieVal := hdrs.Get("Set-Cookie")

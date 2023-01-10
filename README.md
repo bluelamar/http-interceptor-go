@@ -107,19 +107,23 @@ func myRealAuthorizer(w InterceptResponseWriterI, r *http.Request) (error, int, 
 func main() {
 
     logger := alogger.New(nil, true)
+
     // setup routes with the interceptors
 
     // http.HandleFunc("/login", loginPage)
     ihd := ihandler.New(loginPage, myDummyAuthorizer, myRespChecker, logger)
+    ihd = ihd.WithPost(logMyRespSize)
     http.HandleFunc("/login", ihd.HandleFunc)
 
-    // No UserResponseMonitorFunc specified.
+    // No PostResponseFunc specified in New, but added using WithPost().
     // http.HandleFunc("/create", createResourcePage)
     ihc := ihandler.New(createMyResource, myRealAuthorizer, nil, logger)
+    ihc = ihc.WithPost(logMyRespSize)
     http.HandleFunc("/create", ihc.HandleFunc)
 
     // http.HandleFunc("/update", updateResourcePage)
     ihu := ihandler.New(updateMyResource, myRealAuthorizer, myRespChecker, logger)
+    ihu = ihu.WithPre(myDummyAuthorizer)
     http.HandleFunc("/update", ihu.HandleFunc)
 
     err := http.ListenAndServe("127.0.0.1:8080", nil)
